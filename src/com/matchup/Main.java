@@ -3,54 +3,54 @@ package com.matchup;
 import org.json.simple.parser.*;
 import org.json.simple.*;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.util.Calendar;
-import java.util.Date;
+import java.util.*;
 
 
 public class Main {
 
-    private static final long COMPETITION_ID = 20;
-
-    private static final String BASE_URL = "https://inside01.api.orange.com";
-    private static final String TODAY_MATCHES_ENDPOINT = "/ofc/v1/ofc/matches?date=";
-    private static final String BEARER_TOKEN = "HWSqpZLM3POWEw9U57lx0XI2xFaN";
-    private static String TodayDate = "2019-04-09"; // yyyy-mm-dd
+    private static final long COMPETITION_ID = 2;
+    private static String todayDate = "2018-08-20"; // yyyy-mm-dd
     private static JSONArray todayCompetitionMatches;
-    private static MatchHandler[] matchHandlers;
+    private static List<MatchHandler> matchHandlers = new ArrayList<>();
     private static int SLEEP_INTERVAL_TIME = 10; //in seconds
+    private static String SET_DATE = "2018-08-20 17:59:30";
+    private static BackEnd backEnd = new BackEnd();
 
 
     public static void main(String[] args) {
 
-        boolean changed;
+        boolean done;
 
-
-        //TodayDate = fetchTodayDate();
+        //todayDate = fetchTodayDate();
 
         try {
-            todayCompetitionMatches = getCompetitionMatches(fetchTodayMatches(), COMPETITION_ID);
-            matchHandlers = new MatchHandler[todayCompetitionMatches.size()];
+            todayCompetitionMatches = getCompetitionMatches(backEnd.fetchTodayMatches(todayDate), COMPETITION_ID);
+            matchHandlers = new ArrayList<>();
             for (int i = 0; i < todayCompetitionMatches.size(); i++) {
-                matchHandlers[i] = new MatchHandler(getMatchID(i), getMatchStartDate(i), getTeam1(i), getTeam2(i));
+                matchHandlers.add(new MatchHandler(getMatchID(i), getMatchStartDate(i), getTeam1(i), getTeam2(i)));
+            }
+            Collections.sort(matchHandlers);
+            for (MatchHandler matchHandler : matchHandlers) {
+                System.out.println(matchHandler.getName() + " " + matchHandler.getStartDate());
             }
             do {
-                changed = false;
+                done = true;
                 for (MatchHandler matchHandler : matchHandlers) {
                     if ((!matchHandler.started()) && checkTime(matchHandler.getStartDate())) {
+                        System.out.println(SET_DATE);
+                        System.out.println("Starting thread " + matchHandler.getName());
                         new Thread(matchHandler).start();
-                        changed = true;
                     }
+                    if(!matchHandler.started())
+                        done = false;
                 }
-                Thread.sleep(SLEEP_INTERVAL_TIME * 1000);
-            } while (!changed);
+                Thread.sleep(SLEEP_INTERVAL_TIME * 10 / 5);
+                incrementStartDate();
+            } while (!done);
 
         } catch (Exception e) {
             System.out.println(e);
@@ -66,42 +66,6 @@ public class Main {
 
     }
 
-    //returns the search results for today matches from API as String
-    private static JSONArray fetchTodayMatches() {
-        String searchString = BASE_URL + TODAY_MATCHES_ENDPOINT + TodayDate;
-        URL url;
-        try {
-            url = new URL(searchString);
-            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-            connection.setRequestMethod("GET");
-            connection.setRequestProperty("Authorization", "Bearer " + BEARER_TOKEN);
-            connection.setRequestProperty("Content-Type", "application/json");
-            connection.setConnectTimeout(10000);
-            connection.setReadTimeout(10000);
-
-            BufferedReader bufferedReader = new BufferedReader(
-                    new InputStreamReader(connection.getInputStream()));
-            String inputLine;
-            StringBuffer stringBuffer = new StringBuffer();
-            while ((inputLine = bufferedReader.readLine()) != null) {
-                stringBuffer.append(inputLine);
-            }
-            bufferedReader.close();
-
-            return toJSONArray(stringBuffer.toString());
-        } catch (Exception e) {
-            System.out.println(e);
-        }
-        return new JSONArray();
-
-
-    }
-
-    private static JSONArray toJSONArray(String string) throws Exception {
-        JSONParser parser = new JSONParser();
-        return (JSONArray) parser.parse(string);
-
-    }
 
     private static JSONArray getCompetitionMatches(JSONArray searchResults, long competitionID) {
 
@@ -132,15 +96,18 @@ public class Main {
 
     private static boolean checkTime(String startDate) {
         DateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-        Date matchDate = new Date();
+        Date matchDate = new Date(), setDate = new Date();
         try {
             matchDate = dateFormat.parse(startDate);
+            setDate = dateFormat.parse(SET_DATE);
         } catch (java.text.ParseException e) {
             System.out.println(e);
         }
-        Calendar currentTime = Calendar.getInstance(), matchStartTime = Calendar.getInstance();
+        Calendar setCalendar = Calendar.getInstance(), matchStartTime = Calendar.getInstance();
         matchStartTime.setTime(matchDate);
-        if (matchStartTime.compareTo(currentTime) <= 0)
+        setCalendar.setTime(setDate);
+
+        if (matchStartTime.compareTo(setCalendar) <= 0)
             return true;
         else return false;
 
@@ -156,6 +123,31 @@ public class Main {
         JSONObject objectAtI = (JSONObject) todayCompetitionMatches.get(i);
         JSONObject team2 = (JSONObject) objectAtI.get("team2");
         return (String) team2.get("name");
+    }
+
+    private static void incrementStartDate() {
+        DateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        Date matchDate = new Date();
+        try {
+            matchDate = dateFormat.parse(SET_DATE);
+        } catch (java.text.ParseException e) {
+            System.out.println(e);
+        }
+
+        Calendar calendar = Calendar.getInstance();
+        calendar.setTime(matchDate);
+        calendar.add(Calendar.SECOND, SLEEP_INTERVAL_TIME);
+        calendar.add(Calendar.MONTH, 1);
+
+
+        SET_DATE = calendar.get(Calendar.YEAR) + "-" + (calendar.get(Calendar.MONTH) < 10 ? "0" +
+                calendar.get(Calendar.MONTH) : calendar.get(Calendar.MONTH)) + "-"
+                + (calendar.get(Calendar.DAY_OF_MONTH) < 10 ? "0"
+                + calendar.get(Calendar.DAY_OF_MONTH) : calendar.get(Calendar.DAY_OF_MONTH)) + " " +
+                calendar.get(Calendar.HOUR_OF_DAY) + ":" + (calendar.get(Calendar.MINUTE) < 10 ? "0" +
+                calendar.get(Calendar.MINUTE) : calendar.get(Calendar.MINUTE)) + ":"
+                + (calendar.get(Calendar.SECOND) < 10 ? "0" + calendar.get(Calendar.SECOND) : calendar.get(Calendar.SECOND));
+
     }
 
 
